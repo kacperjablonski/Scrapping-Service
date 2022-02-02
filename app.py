@@ -8,74 +8,71 @@ from collections import ChainMap
 NBP_API_EX_RATES_URL = 'http://api.nbp.pl/api/exchangerates/tables/A/'
 CINKCIARZ_SCRAPING_RATE_URL = 'https://cinkciarz.pl/wa/pe/transactional?subscriptionId=PLN&unit=50000'
 
+ex_rates_raw, *_ = requests.get(NBP_API_EX_RATES_URL).json()
+cin_ex_rates_raw = requests.get(CINKCIARZ_SCRAPING_RATE_URL).text
+
 app = Flask(__name__)
+def printing_one (market , currency, prise):
+    print (f' Lepszy przelicznik jest {currency} na {market} po {prise}'  )
 
+def printing_two(market ,currency, prise) :   
+    print (f' {currency} jest tylko na {market} po {prise}'  )
 
-def check_is_currency(currency, nbp_ex):
-    if currency in nbp_ex:
+def check_market(currency, market_cin, market_nbp):
+    if currency in market_cin and currency in market_nbp:
         return True
-    else:
-        return False
-
-
+    else : 
+        return 'Cinkciarz' if currency in market_cin else 'NBP '
+ 
+ 
 def comparison(cin_ex, nbp_ex, all_currency):
-    result = []
+    
+    
     for currency in all_currency:
-        if check_is_currency(currency, cin_ex):
-            if check_is_currency(currency, nbp_ex):
-                if (float(nbp_ex[currency]) <= float(cin_ex[currency],)):
-                    result.append(
-                        f'Lepszy przelicznik  {currency}  jest na NBP : {nbp_ex[currency]}')
-                else:
-                    result.append(
-                        f'Lepszy przelicznik  {currency}  jest na Cinkciarzu : {cin_ex[currency]}')
-            else:
-                result.append(
-                    f'Nie ma waluty na NBP przelicznik z Cinkciarza:  {cin_ex[currency]}')
-        else:
-            result.append(
-                f'Nie ma waluty na Cinkciarzu przelicznik z NBP:  {nbp_ex[currency]}')
-    return result
+        try:
+            market=  'Cinkciarz' if cin_ex[currency] > nbp_ex[currency] else 'NBP'
+            printing_one(market, currency , cin_ex[currency] if cin_ex[currency] > nbp_ex[currency] else nbp_ex[currency] )    
+        except:
+            market = check_market(currency, cin_ex, nbp_ex)
+            printing_two(market , currency , cin_ex[currency] if market == 'Cinkciarz' else nbp_ex[currency] )
 
 
 def sum_currency(cin_ex, nbp_ex):
     return list(ChainMap(cin_ex, nbp_ex))
 
 
-ex_rates, *_ = requests.get(NBP_API_EX_RATES_URL).json()
-cin_ex_rates = requests.get(CINKCIARZ_SCRAPING_RATE_URL)
 
+exchange_rates_nbp, nbp_ex_rates_date = ex_rates_raw['rates'], ex_rates_raw['effectiveDate']
 
 nbp_ex_rates = {}
-for rate in ex_rates['rates']:
-    nbp_ex_rates[rate['code']] = rate['mid']
+for currency_index in exchange_rates_nbp:
+    nbp_ex_rates[currency_index['code']] = currency_index['mid']
 
 
-soup = BeautifulSoup(cin_ex_rates.text, "lxml")
-table = soup.find("table", attrs={"class": "table"})
-table_data = table.tbody.find_all("tr")
+parse_cin_ex_rates = BeautifulSoup(cin_ex_rates_raw, "lxml")
+get_table_cin_ex_rates = parse_cin_ex_rates.find(
+    "table", attrs={"class": "table"})
+table_data = get_table_cin_ex_rates.tbody.find_all("tr")
 
-headings = []
+
+
 cin_ex_rate = {}
-for index in range(len(table_data)):
-    currency = []
-    for td in table_data[index].find_all("td"):
-        currency.append(td.text.replace('\n', ' ').strip())
-    cin_ex_rate[currency[2]] = currency[4]
-    headings.append(currency)
-
-new_cin_ex_rates = {}
-for rate in cin_ex_rate:
-    new_cin_ex_rates[(rate.split().pop())] = cin_ex_rate[rate].replace(',', '.')
+for td in table_data:
+    clean_td = td.text.replace('\n', ' ').strip() 
+    currency , price , *_ = clean_td.strip().split()[-3:]
+    cin_ex_rate[currency] = float(price.replace(',',"."))
 
 
-all_currency = sum_currency(new_cin_ex_rates, nbp_ex_rates)
+print(cin_ex_rate)
 
 
-@app.route('/')
-def my_form():
-    return render_template('testy.html', wyniki=comparison(new_cin_ex_rates, nbp_ex_rates, all_currency))
+all_currency = sum_currency(cin_ex_rate, nbp_ex_rates)
+comparison(cin_ex_rate, nbp_ex_rates, all_currency)
+
+# @app.route('/')
+# def my_form():
+#     return render_template('testy.html', wyniki=comparison(cin_ex_rate, nbp_ex_rates, all_currency))
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# if __name__ == '__main__':
+#     app.run(debug=True)
